@@ -39,6 +39,7 @@ export function createApp({ pool, realtime = noRealtime, baseUrl = process.env.B
   // the API themselves.
   app.get('/s/:code', (_req, res) => res.sendFile(page('session.html')));
   app.get('/host/:code', (_req, res) => res.sendFile(page('host.html')));
+  app.get('/r/:code', (_req, res) => res.sendFile(page('results.html')));
 
   app.use(express.static(PUBLIC_DIR));
 

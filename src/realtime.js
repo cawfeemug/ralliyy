@@ -95,6 +95,18 @@ export function createRealtime({ pool }) {
       emit(`h:${code}`, 'session:participants', { count });
     },
 
+    // The payload carries the results page path; browsers move there.
+    sessionEnded(code) {
+      emit(`s:${code}`, 'session:ended', { resultsUrl: `/r/${code}` });
+    },
+
+    // Everyone still on the page learns the session is gone, then the
+    // server drops their sockets from the session's rooms.
+    sessionDeleted(code) {
+      emit(`s:${code}`, 'session:deleted', {});
+      io?.socketsLeave([`s:${code}`, `h:${code}`]);
+    },
+
     questionPosted(code, question) {
       emit(`s:${code}`, 'question:new', question);
     },
@@ -120,5 +132,5 @@ export function createRealtime({ pool }) {
 // For tests that exercise REST routes without sockets.
 export const noRealtime = {
   attach() {}, close() {}, pollOpened() {}, pollVoted() {}, pollClosed() {}, participants() {},
-  questionPosted() {}, questionUpvoted() {}, questionHidden() {},
+  questionPosted() {}, questionUpvoted() {}, questionHidden() {}, sessionEnded() {}, sessionDeleted() {},
 };

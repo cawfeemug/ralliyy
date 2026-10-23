@@ -173,3 +173,17 @@ test('questions, upvotes and hiding reach other clients live', async () => {
   await new Promise((r) => setTimeout(r, 200));
   assert.equal(hostHeard, 1);
 });
+
+test('ending and deleting a session reach everyone in it', async () => {
+  const s = await setup();
+  const watcher = client();
+  await joinRoom(watcher, { code: s.code });
+
+  const ended = next(watcher, 'session:ended');
+  await request(server).post(`/api/sessions/${s.code}/end`).set('Authorization', `Bearer ${s.hostToken}`);
+  assert.deepEqual(await ended, { resultsUrl: `/r/${s.code}` });
+
+  const deleted = next(watcher, 'session:deleted');
+  await request(server).delete(`/api/sessions/${s.code}`).set('Authorization', `Bearer ${s.hostToken}`);
+  await deleted;
+});

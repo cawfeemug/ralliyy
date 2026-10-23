@@ -5,6 +5,7 @@ import { io } from '/socket.io/socket.io.esm.min.js';
 const EVENTS = [
   'poll:opened', 'poll:results', 'poll:closed', 'session:participants',
   'question:new', 'question:upvotes', 'question:hidden',
+  'session:ended', 'session:deleted',
 ];
 
 // onResync: fetch full state again (called after every connect, including

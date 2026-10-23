@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { bearerToken, generateCode, generateHostToken, hashToken, tokenMatches } from '../auth.js';
 import { withTransaction } from '../db.js';
 import { loadMyVotes, loadPolls } from '../polls.js';
+import { endLockedSession } from '../lifecycle.js';
 import { loadQuestions } from '../questions.js';
 import { HttpError, LIMITS, cleanText, parseCode, participantIdFrom } from '../validate.js';
 
@@ -134,6 +135,52 @@ export function createSessionsRouter({ pool, baseUrl, realtime }) {
     if (isNew) realtime.participants(code, count);
 
     res.json({ participantCount: count, participantLimit: LIMITS.participantsPerSession });
+  });
+
+  function requireHost(req, session) {
+    if (!tokenMatches(bearerToken(req), session.host_token_hash)) {
+      throw new HttpError(401, 'unauthorized', 'Host token is missing or wrong');
+    }
+  }
+
+  // Host: end the session. Voting and questions stop, any open poll is
+  // closed, and the results stay public at /r/CODE.
+  router.post('/:code/end', async (req, res) => {
+    // Check the token before taking any locks.
+    const s = await loadSession(req);
+    requireHost(req, s);
+    const { code } = s;
+
+    const endedAt = await withTransaction(pool, async (client) => {
+      // Lock order matters. A vote locks its poll, then updates the
+      // session row; locking in the same order here (open polls first, then
+      // the session) means End and a vote can't each hold what the other
+      // needs, which would be a deadlock. Both locks wait for votes and
+      // questions that are mid-write, and a second End waits, then sees 'ended'.
+      await client.query(
+        `SELECT p.id FROM polls p JOIN sessions s ON s.id = p.session_id
+          WHERE s.code = $1 AND p.status = 'open' FOR UPDATE OF p`, [code]);
+      const { rows } = await client.query('SELECT id, status FROM sessions WHERE code = $1 FOR UPDATE', [code]);
+      if (rows.length === 0) throw new HttpError(404, 'not_found', 'Session not found');
+      const session = rows[0];
+      if (session.status === 'ended') throw new HttpError(410, 'ended', 'This session has already ended');
+      return endLockedSession(client, session.id);
+    });
+
+    realtime.sessionEnded(code);
+    res.json({ status: 'ended', endedAt, resultsUrl: `/r/${code}` });
+  });
+
+  // Host: delete the session and everything in it. ON DELETE CASCADE on
+  // every child table removes participants, polls, votes, questions and
+  // upvotes in the same statement.
+  router.delete('/:code', async (req, res) => {
+    const s = await loadSession(req);
+    requireHost(req, s);
+    const deleted = await pool.query('DELETE FROM sessions WHERE id = $1', [s.id]);
+    if (deleted.rowCount === 0) throw new HttpError(404, 'not_found', 'Session not found');
+    realtime.sessionDeleted(s.code);
+    res.status(204).end();
   });
 
   // QR code for the join link, as an SVG image. Generated on the server so

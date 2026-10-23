@@ -508,3 +508,116 @@ button.upvote:disabled { cursor: progress; }
 .question__actions .link-btn { min-height: var(--control-height); padding: 0 4px; }
 .btn--small { min-height: 44px; padding: 0 var(--space-2); }
 .field--error .field__counter { color: var(--danger); }
+
+/* =================== Lifecycle, present mode, results (M4) =================== */
+/* Confirmation modal */
+.modal__actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-top: var(--space-3); }
+.modal .modal__actions .btn--secondary { margin-top: 0; }
+.modal > .btn[aria-busy='true'] { margin-top: var(--space-3); }
+.modal__error { margin-top: var(--space-2); }
+
+/* Host page: ended state */
+.badge--ended { background: var(--disabled); color: var(--text-2); }
+.host-ended { margin-top: var(--space-3); }
+@media (max-width: 640px) {
+  .host-top__actions { width: 100%; }
+  .host-top__actions .btn { flex: 1; }
+}
+
+/* Present mode: full screen, sized for a 1920 x 1080 projector, scaling
+   down with the viewport width. */
+body.is-presenting { overflow: hidden; }
+.present {
+  position: fixed; inset: 0; z-index: 40; overflow-y: auto;
+  display: flex; flex-direction: column;
+  padding: clamp(24px, 2.5vw, 48px);
+  background: var(--page);
+}
+.present__head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
+.present__logo {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: var(--space-3);
+  color: var(--primary); font-weight: 700; font-size: clamp(16px, 1.25vw, 24px);
+}
+.present__logo svg { width: clamp(20px, 1.5vw, 28px); height: auto; }
+.present__title { font-size: clamp(24px, 2.1vw, 40px); line-height: 1.25; font-weight: 600; margin-top: 8px; }
+.present__join { display: flex; align-items: flex-start; gap: var(--space-3); }
+.present__join-label { color: var(--text-2); font-size: clamp(14px, 1.15vw, 22px); }
+.present__code { color: var(--primary); font-size: clamp(36px, 3.4vw, 64px); line-height: 1.15; font-weight: 700; letter-spacing: 0.02em; }
+.present__url { color: var(--primary); font-size: clamp(14px, 1.15vw, 22px); }
+.present__qr {
+  width: clamp(96px, 7.5vw, 144px); height: auto;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-control); padding: 6px;
+}
+.present__body {
+  flex: 1; display: grid; gap: clamp(24px, 2vw, 40px); align-items: start;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 33vw, 640px);
+  margin-top: clamp(16px, 1.5vw, 32px);
+}
+.present__question { font-size: clamp(28px, 2.7vw, 52px); line-height: 1.2; font-weight: 600; overflow-wrap: anywhere; }
+.present__options { display: grid; gap: clamp(8px, 0.6vw, 12px); margin-top: clamp(12px, 1.2vw, 24px); }
+.present .result { padding: clamp(10px, 0.8vw, 16px) clamp(12px, 1vw, 20px); }
+.present .result__label { font-size: clamp(18px, 1.55vw, 30px); line-height: 1.3; }
+.present .result__votes { font-size: clamp(14px, 1.25vw, 24px); line-height: 1.3; }
+.present .result__pct { font-size: clamp(18px, 1.55vw, 30px); }
+.present__totals {
+  display: flex; justify-content: space-between; gap: 16px; margin-top: clamp(12px, 1vw, 20px);
+  font-size: clamp(14px, 1.15vw, 22px); font-weight: 600;
+}
+.present__status { color: var(--text-2); font-weight: 400; }
+.present__waiting { align-self: center; text-align: center; padding: 64px 0; }
+.present__waiting h2 { font-size: clamp(32px, 3vw, 56px); line-height: 1.2; font-weight: 600; }
+.present__waiting p { color: var(--text-2); font-size: clamp(16px, 1.4vw, 26px); margin-top: 16px; }
+.present__questions h2 { font-size: clamp(20px, 1.65vw, 32px); line-height: 1.25; font-weight: 600; }
+.present__meta { color: var(--text-2); font-size: clamp(14px, 1.15vw, 22px); margin-top: 8px; }
+.present__q {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control);
+  padding: clamp(14px, 1.1vw, 22px); margin-top: clamp(10px, 0.8vw, 16px);
+}
+.present__q-body { font-size: clamp(16px, 1.45vw, 28px); line-height: 1.4; overflow-wrap: anywhere; }
+.present__q-votes { font-size: clamp(14px, 1.15vw, 22px); font-weight: 600; margin-top: 12px; }
+.present__foot { margin-top: var(--space-3); }
+.present__exit {
+  border: 0; background: none; padding: 8px 0; cursor: pointer;
+  color: var(--text-2); font-size: clamp(12px, 0.9vw, 16px);
+}
+.present__exit:hover { color: var(--text); }
+.present__exit:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 900px) {
+  .present__head { flex-direction: column; gap: var(--space-2); }
+  .present__body { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Results page */
+.results-shell { max-width: 1280px; margin: 0 auto; padding: 0 0 var(--space-6); }
+.results { padding: 0 var(--space-8); }
+.results-shell .site-header__aside .btn { min-width: 128px; }
+.chip {
+  display: inline-flex; padding: 2px 8px; border-radius: 4px;
+  background: var(--disabled); color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600;
+}
+.results-head { margin-top: var(--space-4); }
+.results-head__top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.results-title { margin-top: var(--space-2); overflow-wrap: anywhere; }
+.results-meta { color: var(--text-2); margin-top: var(--space-2); }
+.results-copy--inline { display: none; margin-top: var(--space-3); }
+.results-grid {
+  display: grid; gap: var(--space-3); align-items: start;
+  grid-template-columns: minmax(0, 1fr) 392px; margin-top: var(--space-4);
+}
+.results-grid__polls, .results-grid__qa { display: grid; gap: var(--space-2); }
+.results-poll .poll-question { margin-top: var(--space-2); }
+.results-poll .poll-list { margin-top: var(--space-2); }
+.results-q__body { margin-top: 0; }
+.results-q__votes { font-weight: 600; margin-top: var(--space-2); }
+.results-live { max-width: 560px; margin: var(--space-4) auto 0; display: grid; gap: var(--space-2); }
+.results-live__title { margin-top: var(--space-2); }
+@media (max-width: 900px) {
+  .results-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .results { padding: 0 var(--space-2); }
+  .results-copy--inline { display: flex; }
+  .results-head { margin-top: var(--space-3); }
+  .results-title { font-size: 24px; line-height: 32px; }
+}
+.host-ended .banner__link { display: block; width: fit-content; }

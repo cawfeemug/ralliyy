@@ -1,8 +1,8 @@
 import { api } from './api.js';
 import { applyPollEvent, applyQuestionEvent, connectLive, currentPoll, sortQuestions } from './live.js';
 import {
-  banner, bindCounter, copyText, el, emptyState, icon, pollTotals, resultCard, setBusy, showToast, spinner, timeAgo,
-  upvotePill,
+  banner, bindCounter, confirmModal, copyText, el, emptyState, icon, pollTotals, resultCard, setBusy, showToast, spinner,
+  timeAgo, upvotePill,
 } from './ui.js';
 
 // Host page: /host/CODE#token. The token sits after the # so browsers never
@@ -16,13 +16,14 @@ const MAX_OPTIONS = 6;
 const MIN_OPTIONS = 2;
 
 const state = {
-  view: 'loading', // loading | ready | notfound | error
+  view: 'loading', // loading | ready | notfound | deleted | error
   connection: 'live',
   session: null,
   polls: [],
   questions: [], // all questions, hidden ones included
   composerOpen: false,
   justClosed: false,
+  presenting: false,
   draft: loadDraft(),
 };
 
@@ -77,6 +78,10 @@ async function load() {
       },
       onStatus: (connection) => { state.connection = connection; renderLive(); },
       onEvent: (name, data) => {
+        if (name === 'session:deleted') return showDeleted();
+        // Ended (by this tab, another tab or the 24-hour timer): reload
+        // the state and redraw the page in its ended, read-only form.
+        if (name === 'session:ended') return reloadEnded();
         if (name.startsWith('question:')) {
           applyQuestionEvent(state.questions, name, data);
           return renderQa();
@@ -84,6 +89,9 @@ async function load() {
         if (name === 'session:participants') state.session.participantCount = data.count;
         else applyPollEvent(state.polls, name, data);
         renderLive();
+        // A first poll launched from another tab: swap the "No polls yet"
+        // placeholder for the composer. Never rebuilds a composer in use.
+        if (name === 'poll:opened' && state.polls.length === 1 && !state.composerOpen) renderComposer();
       },
     });
   } catch {
@@ -157,6 +165,139 @@ async function setHidden(question, button) {
   showToast('Could not update the question. Please try again.');
 }
 
+// ---------- Ending and deleting ----------
+
+async function reloadEnded() {
+  const fresh = await fetchState().catch(() => null);
+  if (!fresh) return;
+  Object.assign(state, { session: fresh.session, polls: fresh.polls, questions: fresh.questions });
+  exitPresent();
+  renderPage();
+}
+
+function showDeleted() {
+  exitPresent();
+  document.querySelector('.modal-backdrop')?.remove();
+  state.view = 'deleted';
+  renderPage();
+}
+
+function askEnd() {
+  confirmModal({
+    title: 'End session?',
+    body: `Voting will stop for ${state.session.title}. Final results will remain publicly accessible.`,
+    confirmLabel: 'End session',
+    danger: true,
+    busyTitle: 'Ending session…',
+    busyBody: 'Please wait while voting closes and final results are saved.',
+    busyLabel: 'Ending session…',
+    onConfirm: async () => {
+      const res = await api('POST', `/api/sessions/${code}/end`, { hostToken });
+      if (!res.ok && res.status !== 410) return res.data?.error?.message ?? 'Could not end the session. Please try again.';
+      await reloadEnded();
+      return null;
+    },
+  });
+}
+
+function askDelete() {
+  confirmModal({
+    title: 'Delete session?',
+    body: `Permanently delete ${state.session.title} and all its polls, questions and results. This cannot be undone.`,
+    confirmLabel: 'Delete',
+    danger: true,
+    busyTitle: 'Deleting session…',
+    busyBody: 'Please wait while everything in this session is removed.',
+    busyLabel: 'Deleting…',
+    onConfirm: async () => {
+      const res = await api('DELETE', `/api/sessions/${code}`, { hostToken });
+      if (!res.ok && res.status !== 404) return res.data?.error?.message ?? 'Could not delete the session. Please try again.';
+      showDeleted();
+      return null;
+    },
+  });
+}
+
+// ---------- Present mode ----------
+// A full-screen view for a projector: join details, the current poll and
+// the top 3 questions. It reuses the page's live state, so it updates with
+// the same events as the dashboard.
+
+let presentRoot = null;
+
+function enterPresent() {
+  state.presenting = true;
+  presentRoot = el('div', { class: 'present', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Present mode' });
+  document.body.append(presentRoot);
+  document.body.classList.add('is-presenting');
+  // Full screen when the browser allows it; the view works without it too.
+  document.documentElement.requestFullscreen?.().catch(() => {});
+  renderPresent();
+}
+
+function exitPresent() {
+  if (!state.presenting) return;
+  state.presenting = false;
+  presentRoot?.remove();
+  presentRoot = null;
+  document.body.classList.remove('is-presenting');
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  slots.presentButton?.focus();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.presenting) exitPresent();
+});
+// In full screen the browser uses Esc itself to leave full screen, so the
+// key never reaches the page; leaving full screen also leaves present mode.
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && state.presenting) exitPresent();
+});
+
+function renderPresent() {
+  if (!state.presenting) return;
+  const { session } = state;
+  const poll = currentPoll(state.polls);
+  const top = sortQuestions(state.questions.filter((q) => !q.hidden)).slice(0, 3);
+  const votes = (n) => `${n} vote${n === 1 ? '' : 's'}`;
+
+  const pollArea = poll
+    ? el('section', { class: 'present__poll', 'aria-label': 'Current poll' },
+      el('h2', { class: 'present__question' }, poll.question),
+      el('div', { class: 'present__options' },
+        poll.options.map((option) => resultCard(option, { total: poll.totalVotes, bar: false }))),
+      el('div', { class: 'present__totals' },
+        el('span', {}, `${poll.totalVotes} total vote${poll.totalVotes === 1 ? '' : 's'}`),
+        el('span', { class: 'present__status' }, poll.status === 'open' ? 'Open · Live results' : 'Closed · Final results')))
+    : el('section', { class: 'present__waiting' },
+      el('h2', {}, 'Next poll coming up'),
+      el('p', {}, 'Stay connected. Your host will launch the next poll soon.'));
+
+  presentRoot.replaceChildren(
+    el('header', { class: 'present__head' },
+      el('div', {},
+        el('div', { class: 'present__logo' }, document.querySelector('.logo svg').cloneNode(true), 'Ralliyy'),
+        el('h1', { class: 'present__title' }, session.title)),
+      el('div', { class: 'present__join' },
+        el('div', {},
+          el('p', { class: 'present__join-label' }, 'Join the conversation'),
+          el('p', { class: 'present__code' }, session.code),
+          el('p', { class: 'present__url' }, session.joinUrl.replace(/^https?:\/\//, ''))),
+        el('img', { class: 'present__qr', src: `/api/sessions/${session.code}/qr.svg`, alt: `QR code linking to ${session.joinUrl}` }))),
+    el('div', { class: 'present__body' },
+      pollArea,
+      el('section', { class: 'present__questions', 'aria-labelledby': 'present-q-title' },
+        el('h2', { id: 'present-q-title' }, 'Top audience questions'),
+        el('p', { class: 'present__meta' }, 'Most votes first'),
+        top.length
+          ? top.map((q) => el('article', { class: 'present__q' },
+            el('p', { class: 'present__q-body' }, q.body),
+            el('p', { class: 'present__q-votes' }, votes(q.upvotes))))
+          : el('p', { class: 'present__meta' }, 'No questions yet. Scan the code to ask one.'))),
+    el('footer', { class: 'present__foot' },
+      el('button', { class: 'present__exit', type: 'button', onclick: exitPresent }, 'Esc to exit presentation')));
+}
+
 // ---------- Rendering ----------
 // The page is built once. Live updates redraw only the parts that change
 // (counts, poll cards), so the composer the host is typing in is never
@@ -198,13 +339,15 @@ function renderLive() {
     ? el('div', { class: 'previous-list' }, previous.map((p) => pollCard(p, 'Previous')))
     : el('section', { class: 'card' }, emptyState('No previous polls',
       polls.length ? 'Closed polls and their final results will stay here throughout the session.'
-        : 'Your first poll is a draft. Launch it when you’re ready for participants to vote.')));
+        : state.session.status === 'ended' ? 'No polls were run in this session.'
+          : 'Your first poll is a draft. Launch it when you’re ready for participants to vote.')));
 
   // Launch is only possible while no poll is open.
   const blocked = polls.some((p) => p.status === 'open');
   if (slots.launch && !slots.launch.hasAttribute('aria-busy')) slots.launch.disabled = blocked;
   slots.blockedNote?.replaceChildren(blocked
     ? banner('info', 'Close the live poll before launching another. Your draft is saved.') : '');
+  renderPresent();
 }
 
 function questionCard(question, now) {
@@ -229,11 +372,16 @@ function renderQa() {
     ? el('div', { class: 'question-list' }, sorted.map((q) => questionCard(q, now)))
     : el('section', { class: 'card' },
       emptyState('No questions yet', 'Questions from participants will appear here. You can hide them from participants.')));
+  renderPresent();
 }
 
 function renderComposer() {
   slots.launch = null;
   slots.blockedNote = null;
+  if (state.session.status === 'ended') {
+    slots.composer.replaceChildren();
+    return renderLive();
+  }
   if (!state.polls.length && !state.composerOpen) {
     slots.composer.replaceChildren(
       el('section', { class: 'card' },
@@ -313,6 +461,14 @@ function renderPage() {
     return app.replaceChildren(el('div', { class: 'state-centre' }, spinner(true), 'Loading your session…'));
   }
 
+  if (view === 'deleted') {
+    document.getElementById('host-label').textContent = 'Host';
+    return app.replaceChildren(el('div', { class: 'column notfound' },
+      el('section', { class: 'card' }, emptyState('Session deleted',
+        'This session and its results were permanently deleted.', { large: true })),
+      el('a', { class: 'btn btn--primary btn--block state-actions', href: '/' }, 'Back home')));
+  }
+
   if (view === 'notfound' || view === 'error') {
     return app.replaceChildren(el('div', { class: 'column notfound' },
       view === 'error'
@@ -334,13 +490,23 @@ function renderPage() {
   slots.qaMeta = el('p', { class: 't-meta' });
   slots.qaList = el('div');
 
+  const live = session.status === 'live';
+  slots.presentButton = live ? el('button', { class: 'btn btn--secondary', type: 'button', onclick: enterPresent }, 'Present') : null;
+
   app.replaceChildren(
     el('div', { class: 'host-top' },
       el('div', {},
         el('h1', { class: 't-page-title' }, session.title),
         el('div', { class: 'host-top__meta' },
-          el('span', { class: 'badge' }, session.status === 'live' ? 'LIVE' : 'ENDED'),
-          slots.count))),
+          el('span', { class: live ? 'badge' : 'badge badge--ended' }, live ? 'LIVE' : 'ENDED'),
+          slots.count)),
+      live && el('div', { class: 'host-top__actions' },
+        slots.presentButton,
+        el('button', { class: 'btn btn--secondary', type: 'button', onclick: askEnd }, 'End session'))),
+    // A wrapper, because replaceChildren() would print a bare false or null.
+    el('div', {}, live ? null : el('div', { class: 'host-ended' },
+      banner('info', 'This session has ended. Voting and questions are closed, and the results are public.',
+        el('a', { class: 'banner__link', href: `/r/${session.code}` }, 'See results →')))),
     slots.connection,
     el('div', { class: 'host-grid' },
       el('div', { class: 'host-grid__polls' },
@@ -355,7 +521,8 @@ function renderPage() {
         slots.qaMeta,
         slots.qaList)),
     el('footer', { class: 'host-bottom t-meta' },
-      el('span', {}, icon('shield'), ' Keep your private host link safe.')));
+      el('span', {}, icon('shield'), ' Keep your private host link safe.'),
+      el('button', { class: 'link-btn link-btn--danger', type: 'button', onclick: askDelete }, 'Delete session')));
 
   renderComposer();
   renderQa();
