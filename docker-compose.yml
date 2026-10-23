@@ -26,7 +26,9 @@ services:
       # Inside the Compose network the database's host name is the service name, "db".
       DATABASE_URL: postgres://ralliyy:ralliyy@db:5432/ralliyy
       PORT: 3000
-      BASE_URL: http://localhost:3000
+      # Used in join links and QR codes. To test from a phone on your Wi-Fi:
+      # BASE_URL=http://<your-computer-ip>:3000 docker compose up
+      BASE_URL: ${BASE_URL:-http://localhost:3000}
     ports:
       - "3000:3000"
     depends_on:

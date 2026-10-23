@@ -3,10 +3,71 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ralliyy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Ralliyy · Live polls and Q&amp;A</title>
+  <meta name="description" content="Anonymous live polls and audience Q&amp;A. Join with a code, no account needed.">
 </head>
 <body>
-  <h1>Ralliyy</h1>
-  <p>Live polls and Q&amp;A. Coming soon.</p>
+  <header class="site-header">
+    <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#164A8A"/><rect x="8" y="9" width="3.5" height="14" rx="1.75" fill="#fff"/><rect x="14.25" y="6" width="3.5" height="20" rx="1.75" fill="#91D5F2"/><rect x="20.5" y="11" width="3.5" height="10" rx="1.75" fill="#fff"/></svg> Ralliyy</a>
+    <span class="site-header__aside">Anonymous live polling</span>
+  </header>
+
+  <main class="page">
+    <section class="home-hero">
+      <h1 class="t-display">Make room for every voice.</h1>
+      <p class="home-hero__sub t-body-lg">Live polls. Shared perspectives.</p>
+    </section>
+
+    <div class="home-grid">
+      <section class="card" aria-labelledby="create-title">
+        <h2 class="card__title" id="create-title">Create a session</h2>
+        <p class="card__subtitle">Bring your group together with live polls and Q&amp;A.</p>
+        <form class="home-form" id="create-form" novalidate>
+          <div class="field" id="title-field">
+            <div class="field__top">
+              <label class="field__label" for="title">Session title</label>
+              <span class="field__counter" id="title-counter"></span>
+            </div>
+            <input class="input" id="title" name="title" maxlength="80" placeholder="e.g. Product team all-hands" autocomplete="off" aria-describedby="title-hint">
+            <p class="field__hint" id="title-hint" hidden></p>
+          </div>
+          <div class="field">
+            <div class="field__top">
+              <label class="field__label" for="host-name">Host name (optional)</label>
+              <span class="field__counter" id="host-counter"></span>
+            </div>
+            <input class="input" id="host-name" name="hostName" maxlength="40" placeholder="Your name" autocomplete="nickname">
+          </div>
+          <button class="btn btn--primary btn--block" id="create-btn" type="submit">Create session</button>
+          <p class="home-form__note t-meta" id="create-note">You'll get a private host link and a code to share.</p>
+          <div id="create-feedback"></div>
+        </form>
+      </section>
+
+      <section class="card" aria-labelledby="join-title">
+        <h2 class="card__title" id="join-title">Join a session</h2>
+        <p class="card__subtitle">Have a code? Your voice is all you need to join.</p>
+        <form class="home-form" id="join-form" novalidate>
+          <div class="field" id="code-field">
+            <label class="field__label" for="code">Session code</label>
+            <input class="input input--code" id="code" name="code" maxlength="6" placeholder="ABC123" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" aria-describedby="code-hint">
+            <p class="field__hint" id="code-hint">6 characters · Automatically uppercased</p>
+          </div>
+          <button class="btn btn--primary btn--block" id="join-btn" type="submit">Join session</button>
+          <p class="home-form__note t-meta" id="join-note">Enter the code shared by your host. No sign-up required.</p>
+          <div id="join-feedback"></div>
+        </form>
+      </section>
+    </div>
+
+    <footer class="site-footer home-footer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg> Anonymous. No account needed.</footer>
+  </main>
+
+  <script type="module" src="/js/home.js"></script>
 </body>
 </html>

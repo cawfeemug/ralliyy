@@ -2,7 +2,7 @@
 
 Live polls and Q&A for small sessions. A host creates a session; participants join anonymously by a 6-character code or QR code.
 
-Status: early development (milestone M0, project skeleton).
+Status: in development. Hosts can create a session and participants can join by code or QR code (milestone M1).
 
 ## Run it locally
 
