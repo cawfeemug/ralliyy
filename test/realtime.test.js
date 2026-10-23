@@ -140,3 +140,36 @@ test('after reconnecting, a client rejoins and receives later events', async () 
   await request(server).post(`/api/polls/${state.body.polls[0].id}/close`).set('Authorization', `Bearer ${s.hostToken}`);
   assert.equal((await closed).pollId, state.body.polls[0].id);
 });
+
+test('questions, upvotes and hiding reach other clients live', async () => {
+  const s = await setup();
+  const host = client();
+  const watcher = client();
+  await joinRoom(host, { code: s.code, hostToken: s.hostToken });
+  await joinRoom(watcher, { code: s.code });
+  const pid = await joinSession(s);
+
+  const posted = next(watcher, 'question:new');
+  const hostPosted = next(host, 'question:new');
+  const { body: { question } } = await request(server).post(`/api/sessions/${s.code}/questions`)
+    .set('X-Participant-Id', pid).send({ body: 'Live question?' });
+  const seen = await posted;
+  assert.equal(seen.id, question.id);
+  assert.equal(seen.body, 'Live question?');
+  assert.equal(seen.mine, false); // the broadcast never says who asked
+  assert.equal((await hostPosted).id, question.id);
+
+  const upvotes = next(watcher, 'question:upvotes');
+  await request(server).put(`/api/questions/${question.id}/upvote`).set('X-Participant-Id', pid);
+  assert.deepEqual(await upvotes, { questionId: question.id, count: 1 });
+
+  // The host is in both rooms but hears the event once.
+  let hostHeard = 0;
+  host.on('question:hidden', () => { hostHeard += 1; });
+  const hidden = next(watcher, 'question:hidden');
+  await request(server).post(`/api/questions/${question.id}/hide`)
+    .set('Authorization', `Bearer ${s.hostToken}`).send({ hidden: true });
+  assert.deepEqual(await hidden, { questionId: question.id, hidden: true });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(hostHeard, 1);
+});

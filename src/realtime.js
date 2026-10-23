@@ -1,9 +1,10 @@
 import { Server } from 'socket.io';
 import { tokenMatches } from './auth.js';
 import { getPollCounts } from './polls.js';
+import { getUpvoteCount } from './questions.js';
 import { parseCode } from './validate.js';
 
-// Collect a burst of votes into one results broadcast at most this often.
+// Collect a burst of votes (or upvotes) into one broadcast at most this often.
 const RESULTS_THROTTLE_MS = 250;
 
 // Socket.IO is used only for server-to-browser broadcasts. Every action a
@@ -14,9 +15,25 @@ const RESULTS_THROTTLE_MS = 250;
 // sockets that proved they have the host token.
 export function createRealtime({ pool }) {
   let io = null;
-  const pendingResults = new Map(); // pollId -> timer
+  const pending = new Map(); // "poll:ID" or "question:ID" -> timer
 
   const emit = (room, event, payload) => io?.to(room).emit(event, payload);
+
+  // Runs send() once, RESULTS_THROTTLE_MS after the first call for this key;
+  // calls in between are folded into that one send. send() reads counts
+  // from the database when it runs, so the broadcast is never stale even if
+  // more changes arrived while we waited.
+  function throttle(key, send) {
+    if (pending.has(key)) return;
+    pending.set(key, setTimeout(async () => {
+      pending.delete(key);
+      try {
+        await send();
+      } catch (err) {
+        console.error(`${key} broadcast failed`, err);
+      }
+    }, RESULTS_THROTTLE_MS));
+  }
 
   function attach(httpServer) {
     io = new Server(httpServer, {
@@ -58,33 +75,44 @@ export function createRealtime({ pool }) {
       emit(`s:${code}`, 'poll:opened', poll);
     },
 
-    // Called after every vote. Instead of one broadcast per vote, wait up to
-    // 250 ms and send a single update. Counts are read from the database at
-    // send time, so the update is never stale even if votes arrived while
-    // we waited.
+    // Called after every vote. Instead of one broadcast per vote, send at
+    // most one update every 250 ms with counts read fresh at send time.
     pollVoted(code, pollId) {
-      if (pendingResults.has(pollId)) return;
-      const timer = setTimeout(async () => {
-        pendingResults.delete(pollId);
-        try {
-          const counts = await getPollCounts(pool, pollId);
-          emit(`s:${code}`, 'poll:results', { pollId, ...counts });
-        } catch (err) {
-          console.error('poll:results failed', err);
-        }
-      }, RESULTS_THROTTLE_MS);
-      pendingResults.set(pollId, timer);
+      throttle(`poll:${pollId}`, async () => {
+        const counts = await getPollCounts(pool, pollId);
+        emit(`s:${code}`, 'poll:results', { pollId, ...counts });
+      });
     },
 
     pollClosed(code, pollId, counts) {
       // Final counts go out now; drop any throttled update still waiting.
-      clearTimeout(pendingResults.get(pollId));
-      pendingResults.delete(pollId);
+      clearTimeout(pending.get(`poll:${pollId}`));
+      pending.delete(`poll:${pollId}`);
       emit(`s:${code}`, 'poll:closed', { pollId, ...counts });
     },
 
     participants(code, count) {
       emit(`h:${code}`, 'session:participants', { count });
+    },
+
+    questionPosted(code, question) {
+      emit(`s:${code}`, 'question:new', question);
+    },
+
+    // Same throttling as votes: a burst of upvotes on one question becomes
+    // one update with the count read at send time, so updates can never
+    // arrive out of order and show an older count last.
+    questionUpvoted(code, questionId) {
+      throttle(`question:${questionId}`, async () => {
+        const count = await getUpvoteCount(pool, questionId);
+        emit(`s:${code}`, 'question:upvotes', { questionId, count });
+      });
+    },
+
+    // Sent to both rooms, as the spec says. The host's socket is in both,
+    // but Socket.IO delivers a multi-room emit once per socket.
+    questionHidden(code, questionId, hidden) {
+      io?.to([`s:${code}`, `h:${code}`]).emit('question:hidden', { questionId, hidden });
     },
   };
 }
@@ -92,4 +120,5 @@ export function createRealtime({ pool }) {
 // For tests that exercise REST routes without sockets.
 export const noRealtime = {
   attach() {}, close() {}, pollOpened() {}, pollVoted() {}, pollClosed() {}, participants() {},
+  questionPosted() {}, questionUpvoted() {}, questionHidden() {},
 };
