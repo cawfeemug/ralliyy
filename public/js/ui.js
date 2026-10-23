@@ -28,6 +28,7 @@ const ICONS = {
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   shield: '<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>',
   chart: '<path d="M6 19v-5M12 19V7M18 19v-9"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   refresh: '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/>',
 };
 
@@ -106,4 +107,37 @@ export function bindCounter(input, counter) {
   const update = () => { counter.textContent = `${[...input.value].length} / ${input.maxLength}`; };
   input.addEventListener('input', update);
   update();
+}
+
+// ---------- Poll pieces shared by the participant and host pages ----------
+
+export const percent = (votes, total) => (total > 0 ? Math.round((votes / total) * 100) : 0);
+export const pollNumber = (n) => String(n).padStart(2, '0');
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+// One option's result. Pass onclick to make it a button (changing a vote).
+export function resultCard(option, { total, mine = false, bar = true, onclick, disabled = false }) {
+  const pct = percent(option.votes, total);
+  const votes = mine
+    ? el('span', { class: 'result__votes' }, icon('check'), `Your vote · ${plural(option.votes, 'vote')}`)
+    : el('span', { class: 'result__votes' }, plural(option.votes, 'vote'));
+  const children = [
+    el('div', { class: 'result__label' }, option.label),
+    el('div', { class: 'result__row' }, votes, el('span', { class: 'result__pct' }, `${pct}%`)),
+  ];
+  if (bar) {
+    const fill = el('div', { class: 'result__fill' });
+    fill.style.width = `${pct}%`; // CSSOM, so a strict CSP still allows it
+    children.push(el('div', { class: 'result__bar', 'aria-hidden': 'true' }, fill));
+  }
+  const cls = mine ? 'result result--mine' : 'result';
+  return onclick
+    ? el('button', { class: cls, type: 'button', onclick, disabled, 'aria-pressed': mine ? 'true' : 'false' }, ...children)
+    : el('div', { class: cls }, ...children);
+}
+
+export function pollTotals(total, right) {
+  return el('div', { class: 'poll-totals' },
+    el('span', { class: 'poll-totals__count' }, plural(total, 'total vote')),
+    el('span', { class: 't-meta' }, right));
 }
