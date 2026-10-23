@@ -1,0 +1,38 @@
+# Local development: the app plus PostgreSQL. Start with `docker compose up --build`.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ralliyy
+      POSTGRES_PASSWORD: ralliyy
+      POSTGRES_DB: ralliyy
+    volumes:
+      # Named volume: data survives `docker compose down` and container rebuilds.
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on first start, to create the separate test database.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Host port 5433 avoids clashing with a PostgreSQL already installed on 5432.
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ralliyy -d ralliyy"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  app:
+    build: .
+    environment:
+      # Inside the Compose network the database's host name is the service name, "db".
+      DATABASE_URL: postgres://ralliyy:ralliyy@db:5432/ralliyy
+      PORT: 3000
+      BASE_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      # Wait for the health check, not just for the container to start.
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
