@@ -1,6 +1,8 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
+import { createPollsRouter } from './routes/polls.js';
 import { createSessionsRouter } from './routes/sessions.js';
+import { noRealtime } from './realtime.js';
 import { HttpError } from './validate.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
@@ -8,7 +10,7 @@ const page = (name) => fileURLToPath(new URL(`../public/${name}`, import.meta.ur
 
 // Builds the Express app without starting a server, so tests can pass in
 // their own pool and call it through Supertest.
-export function createApp({ pool, baseUrl = process.env.BASE_URL }) {
+export function createApp({ pool, realtime = noRealtime, baseUrl = process.env.BASE_URL }) {
   const app = express();
   app.disable('x-powered-by');
 
@@ -25,7 +27,8 @@ export function createApp({ pool, baseUrl = process.env.BASE_URL }) {
 
   // JSON bodies only, capped at 10 KB so nobody can send huge payloads.
   app.use('/api', express.json({ limit: '10kb' }));
-  app.use('/api/sessions', createSessionsRouter({ pool, baseUrl: baseUrl?.replace(/\/$/, '') }));
+  app.use('/api/sessions', createSessionsRouter({ pool, realtime, baseUrl: baseUrl?.replace(/\/$/, '') }));
+  app.use('/api', createPollsRouter({ pool, realtime }));
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'Not found' } });
   });

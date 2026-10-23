@@ -2,11 +2,12 @@ import express from 'express';
 import QRCode from 'qrcode';
 import { bearerToken, generateCode, generateHostToken, hashToken, tokenMatches } from '../auth.js';
 import { withTransaction } from '../db.js';
+import { loadMyVotes, loadPolls } from '../polls.js';
 import { HttpError, LIMITS, cleanText, parseCode, participantIdFrom } from '../validate.js';
 
 const UNIQUE_VIOLATION = '23505';
 
-export function createSessionsRouter({ pool, baseUrl }) {
+export function createSessionsRouter({ pool, baseUrl, realtime }) {
   const router = express.Router();
 
   // BASE_URL in production; in development, whatever host the browser used.
@@ -55,9 +56,17 @@ export function createSessionsRouter({ pool, baseUrl }) {
     throw new Error('Could not generate a unique session code');
   });
 
-  // Public session state. Later milestones add the open poll and questions.
+  // Full session state. Pages call this on load and after every reconnect,
+  // then keep it current from real-time events.
   router.get('/:code', async (req, res) => {
     const s = await loadSession(req);
+    // The participant ID is optional here; with it, the response says which
+    // option this browser picked in each poll.
+    const pid = req.get('x-participant-id') ? participantIdFrom(req) : null;
+    const [polls, myVotes] = await Promise.all([
+      loadPolls(pool, s.id),
+      pid ? loadMyVotes(pool, s.id, pid) : {},
+    ]);
     res.json({
       session: {
         code: s.code,
@@ -71,6 +80,8 @@ export function createSessionsRouter({ pool, baseUrl }) {
         joinUrl: joinUrl(req, s.code),
       },
       isHost: tokenMatches(bearerToken(req), s.host_token_hash),
+      polls,
+      myVotes,
     });
   });
 
@@ -81,7 +92,7 @@ export function createSessionsRouter({ pool, baseUrl }) {
     const code = parseCode(req.params.code);
     if (!code) throw new HttpError(404, 'not_found', 'Session not found');
 
-    const count = await withTransaction(pool, async (client) => {
+    const { count, isNew } = await withTransaction(pool, async (client) => {
       // FOR UPDATE locks this session's row until the transaction ends, so
       // two joins for the same session run one after the other. Without it,
       // both could count 49 and both insert, giving 51 participants.
@@ -101,7 +112,7 @@ export function createSessionsRouter({ pool, baseUrl }) {
         'SELECT count(*)::int AS n FROM session_participants WHERE session_id = $1',
         [session.id],
       );
-      if (existing.rowCount > 0) return n;
+      if (existing.rowCount > 0) return { count: n, isNew: false };
       if (n >= LIMITS.participantsPerSession) {
         throw new HttpError(409, 'full', 'This session is full');
       }
@@ -111,8 +122,11 @@ export function createSessionsRouter({ pool, baseUrl }) {
         [session.id, participantId],
       );
       await client.query('UPDATE sessions SET last_activity_at = now() WHERE id = $1', [session.id]);
-      return n + 1;
+      return { count: n + 1, isNew: true };
     });
+
+    // Only the host's live head count needs to know about joins.
+    if (isNew) realtime.participants(code, count);
 
     res.json({ participantCount: count, participantLimit: LIMITS.participantsPerSession });
   });

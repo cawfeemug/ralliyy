@@ -3,6 +3,10 @@ import { CODE_ALPHABET, CODE_LENGTH } from './auth.js';
 export const LIMITS = {
   title: 80,
   hostName: 40,
+  pollQuestion: 200,
+  optionLabel: 80,
+  minOptions: 2,
+  maxOptions: 6,
   participantsPerSession: 50,
 };
 
