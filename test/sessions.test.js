@@ -149,9 +149,10 @@ test('QR endpoint returns an SVG for existing sessions only', async () => {
   assert.equal((await request(app).get('/api/sessions/ZZZZZ2/qr.svg')).status, 404);
 });
 
-test('page routes serve the session, host and not-found pages', async () => {
+test('page routes serve the session, host, results and not-found pages', async () => {
   assert.match((await request(app).get('/s/ABC234')).text, /session\.js/);
   assert.match((await request(app).get('/host/ABC234')).text, /host\.js/);
+  assert.match((await request(app).get('/r/ABC234')).text, /results\.js/);
   const missing = await request(app).get('/nope');
   assert.equal(missing.status, 404);
   assert.match(missing.text, /Session not found/);

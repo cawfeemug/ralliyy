@@ -175,3 +175,64 @@ export function upvotePill(question, { onclick, disabled = false } = {}) {
     'aria-label': `${question.upvoted ? 'Remove upvote' : 'Upvote'} · ${plural(question.upvotes, 'upvote')}`,
   }, ...children);
 }
+
+// ---------- Confirmation modal (End and Delete session) ----------
+
+// Shows a modal with Cancel and a confirm button. While onConfirm runs, the
+// modal shows a busy state. onConfirm resolves to null when done (the modal
+// closes) or to an error message (shown, and the buttons come back).
+export function confirmModal({ title, body, confirmLabel, danger = false, busyTitle, busyBody, busyLabel, onConfirm }) {
+  const opener = document.activeElement;
+  const titleEl = el('h2', { class: 'modal__title', id: 'confirm-title' }, title);
+  const bodyEl = el('p', { class: 'modal__body' }, body);
+  const error = el('div');
+  const cancel = el('button', { class: 'btn btn--secondary', type: 'button' }, 'Cancel');
+  const confirm = el('button', { class: `btn ${danger ? 'btn--danger' : 'btn--primary'}`, type: 'button' }, confirmLabel);
+  const actions = el('div', { class: 'modal__actions' }, cancel, confirm);
+  const modal = el('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'confirm-title' },
+    titleEl, bodyEl, error, actions);
+  const backdrop = el('div', { class: 'modal-backdrop' }, modal);
+  let busy = false;
+
+  function close() {
+    document.removeEventListener('keydown', onKey);
+    backdrop.remove();
+    opener?.focus?.();
+  }
+  function onKey(e) {
+    if (e.key === 'Escape' && !busy) close();
+  }
+
+  cancel.addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop && !busy) close(); });
+  confirm.addEventListener('click', async () => {
+    busy = true;
+    error.replaceChildren();
+    titleEl.textContent = busyTitle;
+    bodyEl.textContent = busyBody;
+    const busyButton = el('button', { class: 'btn btn--block', type: 'button', disabled: true, 'aria-busy': 'true' }, spinner(), busyLabel);
+    actions.replaceWith(busyButton);
+    const message = await onConfirm().catch(() => "Couldn't reach Ralliyy. Check your connection and try again.");
+    busy = false;
+    if (!message) return close();
+    titleEl.textContent = title;
+    bodyEl.textContent = body;
+    busyButton.replaceWith(actions);
+    error.replaceChildren(el('div', { class: 'modal__error' }, banner('error', message)));
+  });
+
+  document.addEventListener('keydown', onKey);
+  document.body.append(backdrop);
+  cancel.focus(); // the safe choice has focus first
+}
+
+// "22 Oct 2026"
+export const formatDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+// "Under a minute", "10 minutes", "1 h 25 min"
+export function formatDuration(fromIso, toIso) {
+  const minutes = Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 60000);
+  if (minutes < 1) return 'Under a minute';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}

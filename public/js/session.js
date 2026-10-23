@@ -11,7 +11,7 @@ const code = decodeURIComponent(window.location.pathname.split('/')[2] ?? '').to
 const participantId = getParticipantId();
 
 const state = {
-  view: 'connecting', // connecting | joined | full | ended | notfound | error
+  view: 'connecting', // connecting | joined | full | ended | deleted | notfound | error
   connection: 'live', // live | reconnecting
   session: null,
   polls: [],
@@ -38,7 +38,9 @@ async function resync() {
   const res = await api('GET', `/api/sessions/${code}`, { participantId });
   if (!res.ok) return setState({ view: 'notfound' });
   const { session, polls, myVotes, questions } = res.data;
-  setState({ session, polls, myVotes, questions });
+  // Ended while we were offline: the missed session:ended event's effect.
+  const view = session.status === 'ended' ? 'ended' : state.view;
+  setState({ view, session, polls, myVotes, questions });
 }
 
 async function load() {
@@ -63,6 +65,8 @@ async function load() {
       onResync: () => resync().catch(() => {}),
       onStatus: (connection) => setState({ connection }),
       onEvent: (name, data) => {
+        if (name === 'session:ended') return setState({ view: 'ended', session: { ...state.session, status: 'ended' } });
+        if (name === 'session:deleted') return setState({ view: 'deleted' });
         if (name.startsWith('question:')) onQuestionEvent(name, data);
         else applyPollEvent(state.polls, name, data);
         render();
@@ -358,6 +362,15 @@ function render() {
         emptyState('Session not found',
           'The code may be incorrect, the session may have been deleted, or the private host link may be broken. Check the link or code with your host.',
           { large: true })),
+      el('a', { class: 'btn btn--primary btn--block state-actions', href: '/' }, 'Back home'),
+      footer());
+  }
+
+  if (view === 'deleted') {
+    return app.replaceChildren(
+      el('div', { class: 'session-head' }),
+      el('section', { class: 'card' },
+        emptyState('Session deleted', 'This session and its results were permanently deleted by the host.', { large: true })),
       el('a', { class: 'btn btn--primary btn--block state-actions', href: '/' }, 'Back home'),
       footer());
   }
