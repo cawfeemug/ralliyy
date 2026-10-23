@@ -1,7 +1,8 @@
 import { api } from './api.js';
-import { applyPollEvent, connectLive, currentPoll } from './live.js';
+import { applyPollEvent, applyQuestionEvent, connectLive, currentPoll, sortQuestions } from './live.js';
 import {
-  banner, bindCounter, copyText, el, emptyState, icon, pollTotals, resultCard, setBusy, showToast, spinner,
+  banner, bindCounter, copyText, el, emptyState, icon, pollTotals, resultCard, setBusy, showToast, spinner, timeAgo,
+  upvotePill,
 } from './ui.js';
 
 // Host page: /host/CODE#token. The token sits after the # so browsers never
@@ -19,6 +20,7 @@ const state = {
   connection: 'live',
   session: null,
   polls: [],
+  questions: [], // all questions, hidden ones included
   composerOpen: false,
   justClosed: false,
   draft: loadDraft(),
@@ -59,7 +61,7 @@ async function load() {
       state.view = 'notfound';
       return renderPage();
     }
-    Object.assign(state, { view: 'ready', session: data.session, polls: data.polls });
+    Object.assign(state, { view: 'ready', session: data.session, polls: data.polls, questions: data.questions });
     document.title = `Host · ${data.session.title} · Ralliyy`;
     renderPage();
     connectLive({
@@ -68,12 +70,17 @@ async function load() {
       onResync: async () => {
         const fresh = await fetchState().catch(() => null);
         if (fresh) {
-          Object.assign(state, { session: fresh.session, polls: fresh.polls });
+          Object.assign(state, { session: fresh.session, polls: fresh.polls, questions: fresh.questions });
           renderLive();
+          renderQa();
         }
       },
       onStatus: (connection) => { state.connection = connection; renderLive(); },
       onEvent: (name, data) => {
+        if (name.startsWith('question:')) {
+          applyQuestionEvent(state.questions, name, data);
+          return renderQa();
+        }
         if (name === 'session:participants') state.session.participantCount = data.count;
         else applyPollEvent(state.polls, name, data);
         renderLive();
@@ -137,6 +144,19 @@ async function closePoll(poll, button) {
   showToast('Could not close the poll. Please try again.');
 }
 
+async function setHidden(question, button) {
+  setBusy(button, true, question.hidden ? 'Unhiding…' : 'Hiding…');
+  try {
+    const res = await api('POST', `/api/questions/${question.id}/hide`, { hostToken, body: { hidden: !question.hidden } });
+    if (res.ok) {
+      question.hidden = res.data.hidden;
+      return renderQa();
+    }
+  } catch { /* fall through */ }
+  setBusy(button, false);
+  showToast('Could not update the question. Please try again.');
+}
+
 // ---------- Rendering ----------
 // The page is built once. Live updates redraw only the parts that change
 // (counts, poll cards), so the composer the host is typing in is never
@@ -185,6 +205,30 @@ function renderLive() {
   if (slots.launch && !slots.launch.hasAttribute('aria-busy')) slots.launch.disabled = blocked;
   slots.blockedNote?.replaceChildren(blocked
     ? banner('info', 'Close the live poll before launching another. Your draft is saved.') : '');
+}
+
+function questionCard(question, now) {
+  const button = el('button', { class: 'btn btn--secondary btn--small', type: 'button' }, question.hidden ? 'Unhide' : 'Hide');
+  button.addEventListener('click', () => setHidden(question, button));
+  return el('article', { class: question.hidden ? 'question question--hidden' : 'question' },
+    el('div', { class: 'question__top' },
+      el('span', { class: 't-meta' }, timeAgo(question.createdAt, now)),
+      el('span', { class: 'question__tag' }, question.hidden ? 'Hidden from participants' : 'Visible to participants')),
+    el('p', { class: 'question__body' }, question.body),
+    el('div', { class: 'question__actions' }, upvotePill(question), button));
+}
+
+function renderQa() {
+  const sorted = sortQuestions(state.questions);
+  const hidden = sorted.filter((q) => q.hidden).length;
+  slots.qaMeta.textContent = sorted.length
+    ? `Sorted by most votes · ${sorted.length - hidden} visible · ${hidden} hidden`
+    : 'Sorted by most votes · 0 questions';
+  const now = Date.now();
+  slots.qaList.replaceChildren(sorted.length
+    ? el('div', { class: 'question-list' }, sorted.map((q) => questionCard(q, now)))
+    : el('section', { class: 'card' },
+      emptyState('No questions yet', 'Questions from participants will appear here. You can hide them from participants.')));
 }
 
 function renderComposer() {
@@ -287,6 +331,8 @@ function renderPage() {
   slots.current = el('div', { class: 'stack' });
   slots.composer = el('div', { class: 'stack' });
   slots.previous = el('div');
+  slots.qaMeta = el('p', { class: 't-meta' });
+  slots.qaList = el('div');
 
   app.replaceChildren(
     el('div', { class: 'host-top' },
@@ -306,13 +352,16 @@ function renderPage() {
       el('div', { class: 'host-grid__share' }, shareCard(session)),
       el('div', { class: 'host-grid__qa' },
         el('h2', { class: 'host-section-title' }, 'Q&A'),
-        el('p', { class: 't-meta' }, 'Sorted by most votes · 0 questions'),
-        el('section', { class: 'card' },
-          emptyState('No questions yet', 'Questions from participants will appear here. You can hide them from participants.')))),
+        slots.qaMeta,
+        slots.qaList)),
     el('footer', { class: 'host-bottom t-meta' },
       el('span', {}, icon('shield'), ' Keep your private host link safe.')));
 
   renderComposer();
+  renderQa();
 }
+
+// Keep "5 min ago" labels current.
+setInterval(() => { if (state.view === 'ready') renderQa(); }, 30000);
 
 load();

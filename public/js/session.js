@@ -1,7 +1,9 @@
 import { api } from './api.js';
-import { applyPollEvent, connectLive, currentPoll } from './live.js';
+import { applyPollEvent, applyQuestionEvent, connectLive, currentPoll, sortQuestions } from './live.js';
 import { getParticipantId } from './participant.js';
-import { banner, el, emptyState, icon, pollNumber, pollTotals, resultCard, spinner } from './ui.js';
+import {
+  banner, dismissibleBanner, el, emptyState, icon, pollNumber, pollTotals, resultCard, spinner, timeAgo, upvotePill,
+} from './ui.js';
 
 // Participant page: /s/CODE. One state object; render() redraws from it.
 const app = document.getElementById('app');
@@ -17,7 +19,14 @@ const state = {
   voting: false,
   voteError: null,
   tab: 'poll', // poll | qa
+  questions: [], // includes questions hidden while this page was open (hidden: true)
+  asking: false,
+  askFeedback: null, // { kind, text } shown under the Ask button
+  upvoting: new Set(), // question IDs with a request in flight
+  hiddenNotice: false, // one of my questions was hidden by the host
 };
+
+const QUESTION_MAX = 280;
 
 function setState(patch) {
   Object.assign(state, patch);
@@ -28,7 +37,8 @@ function setState(patch) {
 async function resync() {
   const res = await api('GET', `/api/sessions/${code}`, { participantId });
   if (!res.ok) return setState({ view: 'notfound' });
-  setState({ session: res.data.session, polls: res.data.polls, myVotes: res.data.myVotes });
+  const { session, polls, myVotes, questions } = res.data;
+  setState({ session, polls, myVotes, questions });
 }
 
 async function load() {
@@ -40,20 +50,21 @@ async function load() {
 
     const info = await api('GET', `/api/sessions/${code}`, { participantId });
     if (!info.ok) return setState({ view: 'notfound' });
-    const { session, polls, myVotes } = info.data;
+    const { session, polls, myVotes, questions } = info.data;
     document.title = `${session.title} · Ralliyy`;
 
     if (join.status === 409) return setState({ view: 'full', session });
     if (join.status === 410) return setState({ view: 'ended', session });
     if (!join.ok) return setState({ view: 'error', session });
 
-    setState({ view: 'joined', session, polls, myVotes });
+    setState({ view: 'joined', session, polls, myVotes, questions });
     connectLive({
       code,
       onResync: () => resync().catch(() => {}),
       onStatus: (connection) => setState({ connection }),
       onEvent: (name, data) => {
-        applyPollEvent(state.polls, name, data);
+        if (name.startsWith('question:')) onQuestionEvent(name, data);
+        else applyPollEvent(state.polls, name, data);
         render();
       },
     });
@@ -79,6 +90,68 @@ async function castVote(poll, option) {
     state.voteError = "Couldn't send your vote. Check your connection and try again.";
   }
   setState({ voting: false });
+}
+
+function onQuestionEvent(name, data) {
+  const question = applyQuestionEvent(state.questions, name, data);
+  // Unhidden, but this page never had it (it was hidden before we loaded):
+  // fetch the full state to get it.
+  if (!question && name === 'question:hidden' && !data.hidden) {
+    resync().catch(() => {});
+    return;
+  }
+  if (question?.mine && name === 'question:hidden') state.hiddenNotice = data.hidden;
+}
+
+// ---------- Q&A actions ----------
+
+async function askQuestion() {
+  const body = qa.input.value.trim();
+  if (!body || [...body].length > QUESTION_MAX || state.asking) return;
+  setState({ asking: true, askFeedback: null });
+  try {
+    const res = await api('POST', `/api/sessions/${code}/questions`, { participantId, body: { body } });
+    if (res.ok) {
+      // The question:new broadcast may have arrived first; either way the
+      // question ends up in the list once, marked as mine.
+      const question = applyQuestionEvent(state.questions, 'question:new', res.data.question);
+      question.mine = true;
+      qa.input.value = '';
+      qa.resize();
+      state.askFeedback = { kind: 'success', text: 'Question posted' };
+      clearTimeout(askFeedbackTimer);
+      askFeedbackTimer = setTimeout(() => setState({ askFeedback: null }), 4000);
+    } else if (res.status === 410) {
+      state.view = 'ended';
+    } else if (res.status === 429) {
+      state.askFeedback = { kind: 'error', text: 'Slow down. You’re asking questions too quickly. Asking is temporarily unavailable; your draft is kept.' };
+    } else {
+      state.askFeedback = { kind: 'error', text: res.data?.error?.message ?? 'Your question was not posted. Please try again.' };
+    }
+  } catch {
+    state.askFeedback = { kind: 'error', text: "Couldn't send your question. Check your connection; your draft is kept." };
+  }
+  setState({ asking: false });
+}
+let askFeedbackTimer;
+
+async function toggleUpvote(question) {
+  if (state.upvoting.has(question.id)) return;
+  state.upvoting.add(question.id);
+  render();
+  try {
+    const res = await api(question.upvoted ? 'DELETE' : 'PUT', `/api/questions/${question.id}/upvote`, { participantId });
+    if (res.ok) {
+      question.upvoted = res.data.upvoted;
+      question.upvotes = res.data.upvotes;
+    } else if (res.status === 404) {
+      question.hidden = true; // hidden by the host meanwhile
+    } else if (res.status === 410) {
+      state.view = 'ended';
+    }
+  } catch { /* the button simply stays as it was */ }
+  state.upvoting.delete(question.id);
+  render();
 }
 
 // ---------- Rendering ----------
@@ -160,13 +233,119 @@ function pollPanel(poll) {
     open && el('p', { class: 'poll-hint t-meta' }, 'You can change your vote until the poll closes'));
 }
 
-function qaPanel() {
-  return el('div', { class: 'card' },
-    emptyState('No questions yet', 'Questions from the audience will appear here.'));
+// The Q&A tab is built once and kept, so the question being typed (and the
+// keyboard on a phone) survives live updates; only its parts are refreshed.
+let qa = null;
+
+function buildQa() {
+  const input = el('textarea', {
+    class: 'input question-input', id: 'question-input', rows: 1,
+    placeholder: 'What would you like to ask?', 'aria-describedby': 'question-hint',
+  });
+  const counter = el('span', { class: 'field__counter' });
+  const hint = el('p', { class: 'field__hint', id: 'question-hint' });
+  const field = el('div', { class: 'field' },
+    el('div', { class: 'field__top' }, el('label', { class: 'field__label', for: 'question-input' }, 'Your question'), counter),
+    input, hint);
+  const ask = el('button', { class: 'btn btn--primary btn--block qa-ask', type: 'button', onclick: askQuestion }, 'Ask');
+  const view = {
+    input,
+    notice: el('div'),
+    feedback: el('div'),
+    meta: el('p', { class: 't-meta' }, 'Most upvoted first'),
+    list: el('div', { class: 'question-list' }),
+    // Grows the box with its text; set through the style object so a
+    // strict Content Security Policy still allows it.
+    resize() {
+      input.style.height = 'auto';
+      input.style.height = `${input.scrollHeight + 2}px`;
+    },
+    // No maxlength on the box: a pasted long question stays visible so the
+    // participant can shorten it, and Ask is disabled until it fits.
+    refreshField() {
+      const length = [...input.value.trim()].length;
+      const over = length - QUESTION_MAX;
+      counter.textContent = `${[...input.value].length} / ${QUESTION_MAX}`;
+      field.classList.toggle('field--error', over > 0);
+      hint.textContent = over > 0 ? `Your question is too long. Remove ${over} character${over === 1 ? '' : 's'} to ask.` : '';
+      hint.hidden = over <= 0;
+      if (state.asking) return;
+      ask.disabled = length === 0 || over > 0;
+      ask.replaceChildren('Ask');
+    },
+    ask,
+  };
+  input.addEventListener('input', () => { view.resize(); view.refreshField(); });
+  input.addEventListener('keydown', (e) => {
+    // Enter asks; Shift+Enter adds a new line.
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      askQuestion();
+    }
+  });
+  view.root = el('div', { class: 'qa' },
+    view.notice,
+    el('section', { 'aria-labelledby': 'ask-title' },
+      el('h2', { class: 't-section', id: 'ask-title' }, 'Ask a question'),
+      el('p', { class: 'qa__sub' }, 'Ask anonymously. Upvote questions you’d like the host to answer.'),
+      el('div', { class: 'qa__field' }, field),
+      ask,
+      view.feedback),
+    el('section', { class: 'qa__top', 'aria-labelledby': 'top-title' },
+      el('h2', { class: 't-section', id: 'top-title' }, 'Top questions'),
+      view.meta,
+      view.list));
+  return view;
 }
+
+function questionCard(question, now) {
+  const busy = state.upvoting.has(question.id);
+  const toggle = () => toggleUpvote(question);
+  return el('article', { class: 'question' },
+    el('div', { class: 'question__top' },
+      el('span', { class: 't-meta' }, timeAgo(question.createdAt, now)),
+      question.mine && el('span', { class: 'question__tag' }, 'Yours')),
+    el('p', { class: 'question__body' }, question.body),
+    el('div', { class: 'question__actions' },
+      upvotePill(question, { onclick: toggle, disabled: busy }),
+      // The pill is the accessible control; this label is a larger tap target.
+      el('button', { class: 'link-btn', type: 'button', tabindex: '-1', 'aria-hidden': 'true', onclick: toggle, disabled: busy },
+        question.upvoted ? 'Upvoted' : 'Upvote')));
+}
+
+function updateQa() {
+  qa.notice.replaceChildren(state.hiddenNotice
+    ? el('div', { class: 'qa__notice' }, banner('info', 'Your question was hidden by the host. It is no longer visible to other participants.'))
+    : '');
+
+  qa.refreshField();
+  if (state.asking) {
+    qa.ask.disabled = true;
+    qa.ask.replaceChildren(spinner(), 'Asking…');
+  }
+  const fb = state.askFeedback;
+  qa.feedback.replaceChildren(fb
+    ? el('div', { class: 'qa__feedback' }, fb.kind === 'success'
+      ? dismissibleBanner('success', fb.text, () => setState({ askFeedback: null }))
+      : banner(fb.kind, fb.text))
+    : '');
+
+  const visible = sortQuestions(state.questions.filter((q) => !q.hidden));
+  const now = Date.now();
+  qa.meta.hidden = visible.length === 0;
+  qa.list.replaceChildren(...(visible.length
+    ? visible.map((q) => questionCard(q, now))
+    : [el('div', { class: 'card' },
+      emptyState('No questions yet', 'Be the first to ask. Your question will appear here for others to upvote.'))]));
+}
+
+// Persistent parts of the joined view, so re-rendering doesn't rebuild the
+// Q&A box someone is typing in.
+let joined = null;
 
 function render() {
   const { view, session } = state;
+  if (view !== 'joined') joined = null;
 
   if (view === 'connecting') {
     return app.replaceChildren(el('div', { class: 'state-centre' }, spinner(true), 'Connecting to your session…'));
@@ -208,14 +387,35 @@ function render() {
   }
 
   // joined
+  if (!joined) {
+    joined = {
+      banner: el('div', { class: 'session-banner' }),
+      tabs: el('div'),
+      panel: el('div', { class: 'session-panel', id: 'panel', role: 'tabpanel' }),
+    };
+    app.replaceChildren(header(session), joined.banner, joined.tabs, joined.panel, footer());
+  }
   const poll = currentPoll(state.polls);
-  app.replaceChildren(
-    header(session),
-    el('div', { class: 'session-banner' }, statusBanner(poll)),
-    tabs(),
-    el('div', { class: 'session-panel', id: 'panel', role: 'tabpanel', 'aria-labelledby': `tab-${state.tab}` },
-      state.tab === 'poll' ? pollPanel(poll) : qaPanel()),
-    footer());
+  // The poll status banner belongs to the Poll tab; the Q&A tab only shows
+  // the reconnecting banner.
+  const top = state.tab === 'poll' || state.connection === 'reconnecting' ? statusBanner(poll) : null;
+  joined.banner.hidden = !top;
+  joined.banner.replaceChildren(top ?? '');
+  joined.tabs.replaceChildren(tabs());
+  joined.panel.setAttribute('aria-labelledby', `tab-${state.tab}`);
+  if (state.tab === 'poll') {
+    joined.panel.replaceChildren(pollPanel(poll));
+  } else {
+    qa ??= buildQa();
+    if (joined.panel.firstChild !== qa.root) {
+      joined.panel.replaceChildren(qa.root);
+      qa.resize();
+    }
+    updateQa();
+  }
 }
+
+// Keep "5 min ago" labels current.
+setInterval(() => { if (state.view === 'joined' && state.tab === 'qa') render(); }, 30000);
 
 load();

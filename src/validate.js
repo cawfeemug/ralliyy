@@ -5,6 +5,7 @@ export const LIMITS = {
   hostName: 40,
   pollQuestion: 200,
   optionLabel: 80,
+  question: 280,
   minOptions: 2,
   maxOptions: 6,
   participantsPerSession: 50,

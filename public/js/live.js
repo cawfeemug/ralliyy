@@ -2,7 +2,10 @@
 // anything except "session:join".
 import { io } from '/socket.io/socket.io.esm.min.js';
 
-const EVENTS = ['poll:opened', 'poll:results', 'poll:closed', 'session:participants'];
+const EVENTS = [
+  'poll:opened', 'poll:results', 'poll:closed', 'session:participants',
+  'question:new', 'question:upvotes', 'question:hidden',
+];
 
 // onResync: fetch full state again (called after every connect, including
 // reconnects, because events sent while offline were missed).
@@ -45,3 +48,29 @@ export function applyPollEvent(polls, name, data) {
 
 // The poll to show: the open one, otherwise the most recent closed one.
 export const currentPoll = (polls) => polls.find((p) => p.status === 'open') ?? polls.at(-1) ?? null;
+
+// Applies a question event to a list of questions in place. Hidden
+// questions stay in the list with hidden = true; each page decides whether
+// to show them. Returns the affected question, or null if it isn't in the
+// list (for example a question unhidden that this page never saw).
+export function applyQuestionEvent(questions, name, data) {
+  if (name === 'question:new') {
+    const known = questions.find((q) => q.id === data.id);
+    if (known) return known;
+    questions.push(data);
+    return data;
+  }
+  const question = questions.find((q) => q.id === data.questionId);
+  if (!question) return null;
+  if (name === 'question:upvotes') question.upvotes = data.count;
+  if (name === 'question:hidden') question.hidden = data.hidden;
+  return question;
+}
+
+// Same order as the server: most upvoted, then newest, then by id. A total
+// order, so cards only move when a count really changes.
+export function sortQuestions(questions) {
+  return [...questions].sort((a, b) => b.upvotes - a.upvotes
+    || Date.parse(b.createdAt) - Date.parse(a.createdAt)
+    || Number(b.id) - Number(a.id));
+}

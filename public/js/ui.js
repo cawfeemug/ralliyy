@@ -29,6 +29,7 @@ const ICONS = {
   shield: '<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>',
   chart: '<path d="M6 19v-5M12 19V7M18 19v-9"/>',
   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  up: '<path d="m7 14 5-5 5 5"/>',
   refresh: '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/>',
 };
 
@@ -38,10 +39,17 @@ export function icon(name) {
   return template.content.firstChild;
 }
 
-// kind: 'info' | 'warning' | 'error'
+// kind: 'info' | 'warning' | 'error' | 'success'
 export function banner(kind, ...content) {
   return el('div', { class: `banner banner--${kind}`, role: kind === 'error' ? 'alert' : 'status' },
-    icon(kind), el('div', {}, ...content));
+    icon(kind === 'success' ? 'check' : kind), el('div', { class: 'banner__text' }, ...content));
+}
+
+// A banner with a close button.
+export function dismissibleBanner(kind, text, onClose) {
+  const node = banner(kind, text);
+  node.append(el('button', { class: 'banner__close', type: 'button', 'aria-label': 'Dismiss', onclick: onClose }, icon('close')));
+  return node;
 }
 
 export function spinner(large = false) {
@@ -140,4 +148,30 @@ export function pollTotals(total, right) {
   return el('div', { class: 'poll-totals' },
     el('span', { class: 'poll-totals__count' }, plural(total, 'total vote')),
     el('span', { class: 't-meta' }, right));
+}
+
+// "Just now", "5 min ago", "2 h ago". now is passed in so a whole list uses
+// the same clock.
+export function timeAgo(iso, now = Date.now()) {
+  const minutes = Math.floor((now - Date.parse(iso)) / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}
+
+// ---------- Question pieces shared by the participant and host pages ----------
+
+// The upvote count in a pill. Pass onclick to make it a button.
+export function upvotePill(question, { onclick, disabled = false } = {}) {
+  const children = [icon('up'), el('span', {}, String(question.upvotes))];
+  if (!onclick) {
+    return el('span', { class: 'upvote', 'aria-label': plural(question.upvotes, 'upvote') }, ...children);
+  }
+  return el('button', {
+    class: question.upvoted ? 'upvote upvote--on' : 'upvote', type: 'button', onclick, disabled,
+    'aria-pressed': question.upvoted ? 'true' : 'false',
+    'aria-label': `${question.upvoted ? 'Remove upvote' : 'Upvote'} · ${plural(question.upvotes, 'upvote')}`,
+  }, ...children);
 }

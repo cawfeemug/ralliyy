@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { bearerToken, generateCode, generateHostToken, hashToken, tokenMatches } from '../auth.js';
 import { withTransaction } from '../db.js';
 import { loadMyVotes, loadPolls } from '../polls.js';
+import { loadQuestions } from '../questions.js';
 import { HttpError, LIMITS, cleanText, parseCode, participantIdFrom } from '../validate.js';
 
 const UNIQUE_VIOLATION = '23505';
@@ -63,9 +64,12 @@ export function createSessionsRouter({ pool, baseUrl, realtime }) {
     // The participant ID is optional here; with it, the response says which
     // option this browser picked in each poll.
     const pid = req.get('x-participant-id') ? participantIdFrom(req) : null;
-    const [polls, myVotes] = await Promise.all([
+    const isHost = tokenMatches(bearerToken(req), s.host_token_hash);
+    const [polls, myVotes, questions] = await Promise.all([
       loadPolls(pool, s.id),
       pid ? loadMyVotes(pool, s.id, pid) : {},
+      // Only the host sees hidden questions.
+      loadQuestions(pool, s.id, { includeHidden: isHost, participantId: pid }),
     ]);
     res.json({
       session: {
@@ -79,9 +83,10 @@ export function createSessionsRouter({ pool, baseUrl, realtime }) {
         participantLimit: LIMITS.participantsPerSession,
         joinUrl: joinUrl(req, s.code),
       },
-      isHost: tokenMatches(bearerToken(req), s.host_token_hash),
+      isHost,
       polls,
       myVotes,
+      questions,
     });
   });
 
