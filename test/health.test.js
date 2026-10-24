@@ -8,6 +8,13 @@ let pool;
 before(async () => { pool = await createTestPool(); });
 after(async () => { await pool.end(); });
 
+test('GET /livez answers without touching the database', async () => {
+  const noDbPool = { query: async () => { throw new Error('should not be called'); } };
+  const res = await request(createApp({ pool: noDbPool })).get('/livez');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { status: 'ok' });
+});
+
 test('GET /healthz reports ok when the database answers', async () => {
   const res = await request(createApp({ pool })).get('/healthz');
   assert.equal(res.status, 200);

@@ -28,6 +28,17 @@ async function createSession(body = { title: 'Club Q&A', hostName: 'Jun' }) {
 const join = (code, pid = randomUUID()) =>
   request(app).post(`/api/sessions/${code}/join`).set('X-Participant-Id', pid);
 
+test('without BASE_URL, links use the protocol and host forwarded by the proxy', async () => {
+  const behindProxy = createApp({ pool, baseUrl: '' });
+  const res = await request(behindProxy).post('/api/sessions')
+    .set('X-Forwarded-Proto', 'https')
+    .set('Host', 'ralliyy.onrender.com')
+    .send({ title: 'Proxy test' });
+  assert.equal(res.status, 201);
+  created.push(res.body.code);
+  assert.equal(res.body.joinUrl, `https://ralliyy.onrender.com/s/${res.body.code}`);
+});
+
 test('POST /api/sessions creates a session and returns the host token once', async () => {
   const s = await createSession();
   assert.match(s.code, /^[A-HJKMNP-Z2-9]{6}$/);
