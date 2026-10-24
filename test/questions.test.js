@@ -11,7 +11,7 @@ const created = [];
 
 before(async () => {
   pool = await createTestPool();
-  app = createApp({ pool });
+  app = createApp({ pool, rateLimits: false });
 });
 after(async () => {
   await pool.query('DELETE FROM sessions WHERE code = ANY($1)', [created]);

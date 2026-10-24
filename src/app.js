@@ -4,6 +4,7 @@ import { createPollsRouter } from './routes/polls.js';
 import { createQuestionsRouter } from './routes/questions.js';
 import { createSessionsRouter } from './routes/sessions.js';
 import { noRealtime } from './realtime.js';
+import { createLimiters, securityHeaders } from './security.js';
 import { HttpError } from './validate.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
@@ -11,13 +12,16 @@ const page = (name) => fileURLToPath(new URL(`../public/${name}`, import.meta.ur
 
 // Builds the Express app without starting a server, so tests can pass in
 // their own pool and call it through Supertest.
-export function createApp({ pool, realtime = noRealtime, baseUrl = process.env.BASE_URL }) {
+export function createApp({ pool, realtime = noRealtime, baseUrl = process.env.BASE_URL, rateLimits = true }) {
   const app = express();
   app.disable('x-powered-by');
   // In production Render's proxy terminates HTTPS and forwards the request.
   // Trusting that one hop makes req.protocol 'https' and req.ip the real
   // client address instead of the proxy's.
   app.set('trust proxy', 1);
+
+  // Security headers on everything, pages included.
+  app.use(securityHeaders({ baseUrl }));
 
   // Liveness: the process is up and serving. Render's health check uses this
   // one because it never touches the database, so Neon can scale to zero.
@@ -37,6 +41,19 @@ export function createApp({ pool, realtime = noRealtime, baseUrl = process.env.B
 
   // JSON bodies only, capped at 10 KB so nobody can send huge payloads.
   app.use('/api', express.json({ limit: '10kb' }));
+
+  // Rate limits: a ceiling for the whole API, then tighter ones on the
+  // endpoints that write. Each runs before the route that matches it.
+  if (rateLimits) {
+    const limit = createLimiters();
+    app.use('/api', limit.api);
+    app.post('/api/sessions', limit.createSession);
+    app.put('/api/polls/:id/vote', limit.vote);
+    app.post('/api/sessions/:code/questions', limit.question);
+    app.put('/api/questions/:id/upvote', limit.upvote);
+    app.delete('/api/questions/:id/upvote', limit.upvote);
+  }
+
   app.use('/api/sessions', createSessionsRouter({ pool, realtime, baseUrl: baseUrl?.replace(/\/$/, '') }));
   app.use('/api', createPollsRouter({ pool, realtime }));
   app.use('/api', createQuestionsRouter({ pool, realtime }));

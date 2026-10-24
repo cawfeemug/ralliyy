@@ -19,7 +19,7 @@ const created = [];
 before(async () => {
   pool = await createTestPool();
   realtime = createRealtime({ pool });
-  server = http.createServer(createApp({ pool, realtime }));
+  server = http.createServer(createApp({ pool, realtime, rateLimits: false }));
   realtime.attach(server);
   await new Promise((resolve) => server.listen(0, resolve));
   url = `http://localhost:${server.address().port}`;
