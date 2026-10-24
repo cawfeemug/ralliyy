@@ -19,6 +19,21 @@ export function el(tag, attrs = {}, ...children) {
   return node;
 }
 
+// Same as el(), for SVG. SVG elements need their own namespace or the
+// browser creates an unknown HTML element that renders nothing.
+export function svgEl(tag, attrs = {}, ...children) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === false || value === null || value === undefined) continue;
+    node.setAttribute(key, value === true ? '' : value);
+  }
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
 // Static icon markup written by us, not by users, so innerHTML is safe here.
 const ICONS = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',

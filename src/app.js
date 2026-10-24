@@ -2,6 +2,7 @@ import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { createPollsRouter } from './routes/polls.js';
 import { createQuestionsRouter } from './routes/questions.js';
+import { createRecapRouter } from './routes/recap.js';
 import { createSessionsRouter } from './routes/sessions.js';
 import { noRealtime } from './realtime.js';
 import { createLimiters, securityHeaders } from './security.js';
@@ -57,6 +58,7 @@ export function createApp({ pool, realtime = noRealtime, baseUrl = process.env.B
   app.use('/api/sessions', createSessionsRouter({ pool, realtime, baseUrl: baseUrl?.replace(/\/$/, '') }));
   app.use('/api', createPollsRouter({ pool, realtime }));
   app.use('/api', createQuestionsRouter({ pool, realtime }));
+  app.use('/api', createRecapRouter({ pool }));
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'Not found' } });
   });

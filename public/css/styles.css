@@ -600,6 +600,39 @@ body.is-presenting { overflow: hidden; }
 .results-title { margin-top: var(--space-2); overflow-wrap: anywhere; }
 .results-meta { color: var(--text-2); margin-top: var(--space-2); }
 .results-copy--inline { display: none; margin-top: var(--space-3); }
+/* Recap: stat tiles */
+.stats {
+  display: grid; gap: var(--space-2); margin-top: var(--space-3);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.stat { display: grid; align-content: start; gap: 8px; }
+.stat__label { color: var(--text-2); font-size: 14px; line-height: 20px; }
+.stat__value { font-size: 32px; line-height: 40px; font-weight: 700; }
+.stat__note { color: var(--text-2); font-size: 13px; line-height: 18px; }
+.stat--skeleton { min-height: 118px; background: var(--disabled); border-color: transparent; }
+.stats--loading { margin-top: var(--space-3); }
+
+/* Recap: activity chart */
+.activity { margin-top: var(--space-3); }
+/* Lists need their default indent removed, or the labels sit 40px right of
+   the bars they belong to. */
+.legend { display: flex; gap: var(--space-2); margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+.legend__item { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 13px; }
+.legend__item::before { content: ''; width: 10px; height: 10px; border-radius: 2px; }
+.legend__item--votes::before { background: var(--primary); }
+.legend__item--questions::before { background: var(--highlight); }
+.chart { margin-top: var(--space-2); }
+.chart__svg { display: block; width: 100%; height: 150px; }
+.chart__bar--votes { fill: var(--primary); }
+.chart__bar--questions { fill: var(--highlight); }
+.chart__axis {
+  display: flex; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px solid var(--border);
+  list-style: none; color: var(--text-2); font-size: 12px; line-height: 16px;
+}
+.chart__axis li { flex: 1 1 0; min-width: 0; text-align: center; }
+.chart__caption { margin-top: 8px; }
+.poll-shift { margin-top: 8px; }
+
 .results-grid {
   display: grid; gap: var(--space-3); align-items: start;
   grid-template-columns: minmax(0, 1fr) 392px; margin-top: var(--space-4);
@@ -613,9 +646,14 @@ body.is-presenting { overflow: hidden; }
 .results-live__title { margin-top: var(--space-2); }
 @media (max-width: 900px) {
   .results-grid { grid-template-columns: minmax(0, 1fr); }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
   .results { padding: 0 var(--space-2); }
+  .stat__value { font-size: 28px; line-height: 36px; }
+  .chart__svg { height: 120px; }
+  /* Every other label, so the axis never crowds on a narrow screen. */
+  .chart__axis li:nth-child(even) { color: transparent; }
   .results-copy--inline { display: flex; }
   .results-head { margin-top: var(--space-3); }
   .results-title { font-size: 24px; line-height: 32px; }
