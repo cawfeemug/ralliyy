@@ -14,9 +14,18 @@ const page = (name) => fileURLToPath(new URL(`../public/${name}`, import.meta.ur
 export function createApp({ pool, realtime = noRealtime, baseUrl = process.env.BASE_URL }) {
   const app = express();
   app.disable('x-powered-by');
+  // In production Render's proxy terminates HTTPS and forwards the request.
+  // Trusting that one hop makes req.protocol 'https' and req.ip the real
+  // client address instead of the proxy's.
+  app.set('trust proxy', 1);
 
-  // Used by Docker and Railway to check the app is alive and can reach the
-  // database.
+  // Liveness: the process is up and serving. Render's health check uses this
+  // one because it never touches the database, so Neon can scale to zero.
+  app.get('/livez', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
+
+  // Readiness: the app can also reach the database. For manual checks.
   app.get('/healthz', async (_req, res) => {
     try {
       await pool.query('SELECT 1');

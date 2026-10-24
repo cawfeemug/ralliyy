@@ -1,10 +1,12 @@
 import { endIdleSessions } from '../lifecycle.js';
 
-const EVERY_MS = 10 * 60 * 1000;
+// Hourly is precise enough for a 24-hour idle rule, and it lets the Neon
+// database scale to zero between runs instead of waking every few minutes.
+const EVERY_MS = 60 * 60 * 1000;
 
-// Runs at startup and then every 10 minutes. With one app instance (our
-// Railway setup) it runs once at a time; even if two instances ran it, the
-// single UPDATE in endIdleSessions ends each session only once.
+// Runs at startup and then every hour. With one app instance (our Render
+// setup) it runs once at a time; even if two instances ran it, the single
+// UPDATE in endIdleSessions ends each session only once.
 export function startAutoEnd({ pool, realtime, everyMs = EVERY_MS, log = console }) {
   async function run() {
     try {

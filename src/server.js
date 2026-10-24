@@ -20,10 +20,10 @@ server.listen(PORT, () => {
   console.log(`Ralliyy listening on port ${PORT}`);
 });
 
-// Ends sessions idle for 24 hours: once now, then every 10 minutes.
+// Ends sessions idle for 24 hours: once now, then every hour.
 const autoEnd = startAutoEnd({ pool, realtime });
 
-// Docker and Railway send SIGTERM before stopping the container. Finish
+// Docker and Render send SIGTERM before stopping the container. Finish
 // in-flight requests and close database connections instead of dying mid-query.
 function shutdown(signal) {
   console.log(`${signal} received, shutting down`);
