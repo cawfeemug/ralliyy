@@ -1,0 +1,52 @@
+name: Backup
+
+# Ended sessions stay public forever, so the database is the one thing here
+# that cannot be rebuilt from this repository. This takes a weekly encrypted
+# dump and keeps it with the workflow run, away from the database host.
+on:
+  schedule:
+    # Sundays at 19:17 UTC, which is early Monday in Malaysia. An odd minute
+    # because GitHub delays jobs scheduled on the hour.
+    - cron: '17 19 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump the database
+        env:
+          # Neon's direct connection string, same as the one Render uses.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL secret is not set"; exit 1; fi
+          # pg_dump from the matching major version, so the dump always
+          # restores cleanly whatever the runner happens to ship.
+          docker run --rm -e DATABASE_URL -e PGCONNECT_TIMEOUT=15 postgres:16-alpine \
+            sh -c 'pg_dump --no-owner --no-privileges "$DATABASE_URL"' > ralliyy.sql
+          # A dump smaller than the schema means something went wrong.
+          size=$(wc -c < ralliyy.sql)
+          echo "Dump is $size bytes"
+          if [ "$size" -lt 2000 ]; then echo "Dump looks too small to be real"; exit 1; fi
+          grep -q 'CREATE TABLE public.sessions' ralliyy.sql
+
+      - name: Encrypt the dump
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$BACKUP_PASSPHRASE" ]; then echo "BACKUP_PASSPHRASE secret is not set"; exit 1; fi
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+              --passphrase "$BACKUP_PASSPHRASE" --output ralliyy.sql.gpg ralliyy.sql
+          rm ralliyy.sql
+
+      - name: Keep it with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: ralliyy-backup-${{ github.run_id }}
+          path: ralliyy.sql.gpg
+          # The longest GitHub keeps an artifact on a free plan.
+          retention-days: 90
+          if-no-files-found: error
