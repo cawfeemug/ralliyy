@@ -11,7 +11,7 @@ const created = [];
 
 before(async () => {
   pool = await createTestPool();
-  app = createApp({ pool, baseUrl: 'https://ralliyy.test' });
+  app = createApp({ pool, baseUrl: 'https://ralliyy.test', rateLimits: false });
 });
 after(async () => {
   await pool.query('DELETE FROM sessions WHERE code = ANY($1)', [created]);
@@ -29,7 +29,7 @@ const join = (code, pid = randomUUID()) =>
   request(app).post(`/api/sessions/${code}/join`).set('X-Participant-Id', pid);
 
 test('without BASE_URL, links use the protocol and host forwarded by the proxy', async () => {
-  const behindProxy = createApp({ pool, baseUrl: '' });
+  const behindProxy = createApp({ pool, baseUrl: '', rateLimits: false });
   const res = await request(behindProxy).post('/api/sessions')
     .set('X-Forwarded-Proto', 'https')
     .set('Host', 'ralliyy.onrender.com')
