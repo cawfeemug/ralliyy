@@ -73,7 +73,8 @@ Socket.IO keeps each session in its own room, named after the session code, so
 an update only reaches the people in that session and nobody else.
 
 Everything is stored in PostgreSQL, so nothing is lost if the server restarts.
-The database is backed up once a week by a GitHub Action, which takes an encrypted copy and
+That's also why a session's recap page still works months later. The database
+is backed up once a week by a GitHub Action, which takes an encrypted copy and
 keeps it away from the database itself.
 
 ## Run it yourself
